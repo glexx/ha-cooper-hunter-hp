@@ -21,6 +21,7 @@ TRANSPORT_RTU_OVER_TCP = "rtu_over_tcp"
 TRANSPORT_SERIAL = "serial"
 
 MAX_REGS_PER_READ = 125
+READBACK_DELAY = 0.3  # seconds to let the controller apply a write before verifying
 
 
 class ModbusError(Exception):
@@ -138,9 +139,42 @@ class ModbusClient:
         resp = await self._execute(slave, pdu, expected_data_len=2 * count)
         return [struct.unpack_from(">H", resp, 2 + 2 * i)[0] for i in range(count)]
 
-    async def write_register(self, slave: int, address: int, value: int) -> None:
-        pdu = struct.pack(">BHH", 6, address, value & 0xFFFF)
-        await self._execute(slave, pdu)
+    async def write_register(
+        self, slave: int, address: int, value: int, *, verify: bool = True
+    ) -> None:
+        value &= 0xFFFF
+        pdu = struct.pack(">BHH", 6, address, value)
+        if not verify:
+            await self._execute(slave, pdu)
+            return
+        # Some controllers (slow 9600 buses, or units that only answer on the
+        # broadcast address 0) apply the write but drop or garble the echo.
+        # Try once, and on failure confirm the write by reading the register
+        # back before escalating to the full retry loop.
+        try:
+            await self._execute(slave, pdu, retries=0)
+            return
+        except ModbusError as first_err:
+            if await self._readback_equals(slave, address, value):
+                _LOGGER.debug(
+                    "Write of %s to register %s got no valid echo (%r) but read-back matches",
+                    value, address, first_err,
+                )
+                return
+        try:
+            await self._execute(slave, pdu)
+        except ModbusError:
+            if await self._readback_equals(slave, address, value):
+                return
+            raise
+
+    async def _readback_equals(self, slave: int, address: int, value: int) -> bool:
+        await asyncio.sleep(READBACK_DELAY)
+        try:
+            current = await self.read_holding_registers(slave, address, 1)
+        except ModbusError:
+            return False
+        return current[0] == value
 
     async def write_registers(self, slave: int, address: int, values: list[int]) -> None:
         pdu = struct.pack(">BHHB", 16, address, len(values), 2 * len(values)) + b"".join(
@@ -148,10 +182,18 @@ class ModbusClient:
         )
         await self._execute(slave, pdu)
 
-    async def _execute(self, slave: int, pdu: bytes, expected_data_len: int | None = None) -> bytes:
+    async def _execute(
+        self,
+        slave: int,
+        pdu: bytes,
+        expected_data_len: int | None = None,
+        retries: int | None = None,
+    ) -> bytes:
         last_err: Exception | None = None
+        if retries is None:
+            retries = self._retries
         async with self._lock:
-            for attempt in range(self._retries + 1):
+            for attempt in range(retries + 1):
                 try:
                     if not self.connected:
                         await self.connect()
@@ -177,7 +219,7 @@ class ModbusClient:
                     )
                     # Drop the connection so stale/foreign bytes are not mixed into the next answer.
                     await self.close()
-        raise ModbusError(f"Request failed after {self._retries + 1} attempts: {last_err!r}")
+        raise ModbusError(f"Request failed after {retries + 1} attempts: {last_err!r}")
 
     async def _transceive(self, slave: int, pdu: bytes, expected_data_len: int | None) -> bytes:
         assert self._reader is not None and self._writer is not None
@@ -235,8 +277,9 @@ class ModbusClient:
             return False
         if function in (3, 4):
             return len(body) >= 2 and body[1] == expected_data_len and len(body) == 2 + body[1]
-        # Write responses echo address (+ value / quantity).
-        return body[1:5] == pdu[1:5]
+        # Write responses echo the address (+ value / quantity). Match on the
+        # address only: some controllers echo the clamped/rounded value.
+        return len(body) >= 3 and body[1:3] == pdu[1:3]
 
     def describe(self) -> dict[str, Any]:
         return {
