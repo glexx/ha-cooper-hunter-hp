@@ -34,9 +34,9 @@ FIRMWARE_REGS = (0, 6)
 # (start, count) blocks read from the controller.
 PARAM_BLOCKS: tuple[tuple[int, int], ...] = ((1001, 90), (1091, 90), (1181, 90))
 STATUS_BLOCKS: tuple[tuple[int, int], ...] = ((2001, 90), (2091, 55))
-# Pages that newer firmware exposes (EMS / "allow disinfection in standby").
+# Optional registers that newer firmware may expose.
 # Read best-effort: skipped permanently after OPTIONAL_BLOCK_MAX_FAILURES misses.
-OPTIONAL_PARAM_BLOCKS: tuple[tuple[int, int], ...] = ((1361, 90),)
+OPTIONAL_PARAM_BLOCKS: tuple[tuple[int, int], ...] = ((1429, 1),)
 OPTIONAL_BLOCK_MAX_FAILURES = 3
 
 SENSOR_FAULT_VALUE = 32767

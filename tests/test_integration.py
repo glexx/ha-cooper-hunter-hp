@@ -203,8 +203,7 @@ async def test_disinfection_standby_switch(hass: HomeAssistant, fake_slave) -> N
 
 
 async def test_optional_page_unsupported(hass: HomeAssistant, fake_slave) -> None:
-    for address in range(1361, 1451):
-        del fake_slave.registers[address]
+    del fake_slave.registers[1429]
 
     def fast_client(data):  # missing pages time out; keep that cheap
         client = ModbusClient("tcp", host=data[CONF_HOST], port=data[CONF_PORT],
@@ -219,7 +218,7 @@ async def test_optional_page_unsupported(hass: HomeAssistant, fake_slave) -> Non
         coordinator._params_dirty = True
         await coordinator.async_refresh()
         assert coordinator.last_update_success
-    assert 1361 in coordinator._optional_unsupported
+    assert 1429 in coordinator._optional_unsupported
 
 
 async def test_fault_bits(hass: HomeAssistant, fake_slave) -> None:
