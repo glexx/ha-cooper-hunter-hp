@@ -305,6 +305,9 @@
       },
       "firmware": {
         "name": "Прошивка контролера"
+      },
+      "controller_time": {
+        "name": "Час контролера"
       }
     },
     "binary_sensor": {
@@ -751,6 +754,9 @@
       },
       "disinfection": {
         "name": "Дезінфекція (легіонела)"
+      },
+      "disinfection_in_standby": {
+        "name": "Дезінфекція в режимі очікування/вимкнено"
       },
       "manual_water_pump": {
         "name": "Ручне керування насосом"

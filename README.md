@@ -19,6 +19,10 @@ register 1001–1006 contains a firmware id such as `WF220626 0313`).
   weather curve, silent mode, pumps, electric heater, disinfection, hysteresis, manual defrost.
 - Reads whole controller pages (5 requests per poll) and validates every response, so it works on a
   gateway shared with other Modbus masters.
+- Keeps the controller clock in sync with Home Assistant (the controller schedules legionella
+  disinfection itself and silently skips it forever while its clock is unset, e.g. after a power
+  loss with no cloud/WiFi module attached). The RTC is exposed as the diagnostic sensor
+  *Controller time*.
 - Stable, language‑independent entity ids: `<domain>.<prefix>_<key>` (default prefix `hp`).
 - English and Ukrainian translations.
 - Ready‑made dashboard: [`dashboard/heat_pump_dashboard.yaml`](dashboard/heat_pump_dashboard.yaml)

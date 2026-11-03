@@ -25,7 +25,11 @@ def main() -> None:
     out = ["# Register map (holding registers, FC03 read / FC06 write)", "",
            "Generated from `custom_components/cooper_hunter_hp/registers.py`. "
            "Controller pages: 1001–1090, 1091–1180, 1181–1270 (parameters), 2001–2090, 2091–2180 (status); "
-           "the first 10 registers of every page are a header (firmware id, page start address).", ""]
+           "the first 10 registers of every page are a header (firmware id, page start address).", "",
+           "System clock: 1250 enable, 1251 minute, 1252 hour, 1253 day, 1254 month, 1255 year (2000+N). "
+           "The controller schedules legionella disinfection itself (registers 1152–1156) and never runs it "
+           "while the clock is unset, so the integration keeps these registers in sync with Home Assistant "
+           "time automatically.", ""]
     out += ["## Writable", "", "| Address | Entity | Type / scale | Range / options | Name |",
             "|---|---|---|---|---|"]
     rows = []

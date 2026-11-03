@@ -305,6 +305,9 @@
       },
       "firmware": {
         "name": "Controller firmware"
+      },
+      "controller_time": {
+        "name": "Controller time"
       }
     },
     "binary_sensor": {
@@ -751,6 +754,9 @@
       },
       "disinfection": {
         "name": "Legionella disinfection"
+      },
+      "disinfection_in_standby": {
+        "name": "Disinfection in standby & off mode"
       },
       "manual_water_pump": {
         "name": "Main pump manual control"

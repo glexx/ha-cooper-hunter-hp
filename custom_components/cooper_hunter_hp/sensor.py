@@ -8,9 +8,10 @@ from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, Sen
 from homeassistant.const import UnitOfPower, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from . import HeatPumpConfigEntry
-from .coordinator import HeatPumpCoordinator
+from .coordinator import HeatPumpCoordinator, controller_time
 from .entity import HeatPumpEntity
 from .registers import (
     DERIVED_SENSORS,
@@ -39,6 +40,7 @@ async def async_setup_entry(
         ThermalPowerSensor(coordinator, derived["thermal_power"]),
         ActiveFaultsSensor(coordinator, derived["active_faults"]),
         FirmwareSensor(coordinator, derived["firmware"]),
+        ControllerTimeSensor(coordinator, derived["controller_time"]),
     ]
     async_add_entities(entities)
 
@@ -154,3 +156,16 @@ class FirmwareSensor(HeatPumpEntity, SensorEntity):
     @property
     def native_value(self) -> str | None:
         return self.coordinator.firmware
+
+
+class ControllerTimeSensor(HeatPumpEntity, SensorEntity):
+    """Controller RTC; None while the clock is unset (then disinfection cannot run)."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(self, coordinator: HeatPumpCoordinator, definition: Base) -> None:
+        super().__init__(coordinator, "sensor", definition)
+
+    @property
+    def native_value(self) -> Any:
+        return controller_time(self.coordinator.data or {}, dt_util.DEFAULT_TIME_ZONE)

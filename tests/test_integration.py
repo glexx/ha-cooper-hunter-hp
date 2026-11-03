@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
@@ -12,6 +13,7 @@ from homeassistant.const import CONF_HOST, CONF_NAME, CONF_PORT
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util import dt as dt_util
 
 from custom_components.cooper_hunter_hp.const import (
     CONF_ENTITY_PREFIX,
@@ -20,7 +22,7 @@ from custom_components.cooper_hunter_hp.const import (
     CONF_TRANSPORT,
     DOMAIN,
 )
-from custom_components.cooper_hunter_hp.coordinator import decode, encode
+from custom_components.cooper_hunter_hp.coordinator import controller_time, decode, encode
 from custom_components.cooper_hunter_hp.modbus_client import ModbusClient, ModbusError, crc16
 from custom_components.cooper_hunter_hp.sensor import active_faults
 
@@ -161,6 +163,63 @@ async def test_climate_and_water_heater_modes(hass: HomeAssistant, fake_slave) -
                                        {"entity_id": "select.hp_operating_mode", "option": "heating"},
                                        blocking=True)
         assert fake_slave.registers[1012] == 1
+
+
+async def test_clock_sync(hass: HomeAssistant, fake_slave) -> None:
+    # The snapshot has the controller RTC disabled (scheduled disinfection can never
+    # fire in that state) -> the integration syncs it on the first parameter poll.
+    assert SNAPSHOT[1250] == 0
+    await _setup(hass, fake_slave)
+    assert (1250, 1) in fake_slave.writes
+    synced = controller_time(fake_slave.registers, dt_util.DEFAULT_TIME_ZONE)
+    assert synced is not None
+    assert abs(dt_util.now() - synced) < timedelta(minutes=2)
+    assert hass.states.get("sensor.hp_controller_time").state not in ("unknown", "unavailable")
+
+
+async def test_clock_resync_on_drift(hass: HomeAssistant, fake_slave) -> None:
+    entry = await _setup(hass, fake_slave)
+    coordinator = entry.runtime_data
+    fake_slave.writes.clear()
+    # In sync -> no write on the next parameter poll.
+    coordinator._params_dirty = True
+    await coordinator.async_refresh()
+    assert not any(a == 1250 for a, _ in fake_slave.writes)
+    # Drift beyond the tolerance -> re-synced.
+    fake_slave.registers[1252] = (fake_slave.registers[1252] + 3) % 24
+    coordinator._params_dirty = True
+    await coordinator.async_refresh()
+    assert (1250, 1) in fake_slave.writes
+
+
+async def test_disinfection_standby_switch(hass: HomeAssistant, fake_slave) -> None:
+    await _setup(hass, fake_slave)
+    assert hass.states.get("switch.hp_disinfection_in_standby").state == "off"
+    with patch("custom_components.cooper_hunter_hp.coordinator.WRITE_SETTLE_DELAY", 0):
+        await hass.services.async_call("switch", "turn_on",
+                                       {"entity_id": "switch.hp_disinfection_in_standby"},
+                                       blocking=True)
+    assert (1429, 1) in fake_slave.writes
+
+
+async def test_optional_page_unsupported(hass: HomeAssistant, fake_slave) -> None:
+    for address in range(1361, 1451):
+        del fake_slave.registers[address]
+
+    def fast_client(data):  # missing pages time out; keep that cheap
+        client = ModbusClient("tcp", host=data[CONF_HOST], port=data[CONF_PORT],
+                              timeout=0.2, retries=0)
+        return client
+
+    with patch("custom_components.cooper_hunter_hp.create_client", side_effect=fast_client):
+        entry = await _setup(hass, fake_slave)  # setup succeeds without the optional page
+    assert hass.states.get("switch.hp_disinfection_in_standby").state == "unknown"
+    coordinator = entry.runtime_data
+    for _ in range(2):
+        coordinator._params_dirty = True
+        await coordinator.async_refresh()
+        assert coordinator.last_update_success
+    assert 1361 in coordinator._optional_unsupported
 
 
 async def test_fault_bits(hass: HomeAssistant, fake_slave) -> None:

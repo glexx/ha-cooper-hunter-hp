@@ -2,6 +2,8 @@
 
 Generated from `custom_components/cooper_hunter_hp/registers.py`. Controller pages: 1001–1090, 1091–1180, 1181–1270 (parameters), 2001–2090, 2091–2180 (status); the first 10 registers of every page are a header (firmware id, page start address).
 
+System clock: 1250 enable, 1251 minute, 1252 hour, 1253 day, 1254 month, 1255 year (2000+N). The controller schedules legionella disinfection itself (registers 1152–1156) and never runs it while the clock is unset, so the integration keeps these registers in sync with Home Assistant time automatically.
+
 ## Writable
 
 | Address | Entity | Type / scale | Range / options | Name |
@@ -58,6 +60,7 @@ Generated from `custom_components/cooper_hunter_hp/registers.py`. Controller pag
 | 1236 | `switch.weather_compensation` | u16 | 0/1 | Weather compensation |
 | 1238 | `number.maximum_outlet_temperature` | ×0.1 (signed) | 40…95 °C | Max heat pump outlet temperature |
 | 1239 | `number.room_setpoint` | ×0.1 (signed) | 5…27 °C | Room setpoint |
+| 1429 | `switch.disinfection_in_standby` | u16 | 0/1 | Disinfection in standby & off mode |
 
 ## Read-only
 

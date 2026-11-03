@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta, tzinfo
 import logging
 from typing import Any
 
@@ -11,22 +11,35 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
     FIRMWARE_REGS,
     MAX_STALE_POLLS,
+    OPTIONAL_BLOCK_MAX_FAILURES,
+    OPTIONAL_PARAM_BLOCKS,
     PAGE_HEADER_LEN,
     PARAM_BLOCKS,
     SENSOR_FAULT_VALUE,
     STATUS_BLOCKS,
 )
 from .modbus_client import ModbusClient, ModbusError
+from .registers import (
+    REG_TIME_DAY,
+    REG_TIME_ENABLE,
+    REG_TIME_HOUR,
+    REG_TIME_MINUTE,
+    REG_TIME_MONTH,
+    REG_TIME_YEAR,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 # Time the controller needs to apply a written parameter before it is re-read.
 WRITE_SETTLE_DELAY = 1.0
+# Max difference between the controller clock and HA local time before a re-sync.
+CLOCK_DRIFT_TOLERANCE = timedelta(minutes=5)
 
 
 def to_signed(value: int) -> int:
@@ -66,6 +79,17 @@ def encode(value: float, dtype: str) -> int:
     return int(round(value)) & 0xFFFF
 
 
+def controller_time(raw: dict[int, int], tz: tzinfo | None) -> datetime | None:
+    """Controller RTC as a tz-aware datetime, or None when unset/invalid."""
+    if raw.get(REG_TIME_ENABLE) != 1:
+        return None
+    try:
+        return datetime(2000 + raw[REG_TIME_YEAR], raw[REG_TIME_MONTH], raw[REG_TIME_DAY],
+                        raw[REG_TIME_HOUR], raw[REG_TIME_MINUTE], tzinfo=tz)
+    except (KeyError, ValueError):
+        return None
+
+
 class HeatPumpCoordinator(DataUpdateCoordinator[dict[int, int]]):
     """Polls the controller pages and serves writes."""
 
@@ -94,6 +118,8 @@ class HeatPumpCoordinator(DataUpdateCoordinator[dict[int, int]]):
         self._poll_count = 0
         self._params_dirty = True
         self._failures = 0
+        self._optional_failures: dict[int, int] = {}
+        self._optional_unsupported: set[int] = set()
         self._registers: dict[int, int] = {}
         self.firmware: str | None = None
 
@@ -127,9 +153,62 @@ class HeatPumpCoordinator(DataUpdateCoordinator[dict[int, int]]):
             raise UpdateFailed(f"Error communicating with heat pump: {err}") from err
         self._failures = 0
         if read_params:
+            await self._read_optional_blocks(new)
+            await self._maybe_sync_clock(new)
             self._params_dirty = False
         self._registers.update(new)
         return dict(self._registers)
+
+    async def _read_optional_blocks(self, new: dict[int, int]) -> None:
+        """Read pages that older firmware does not expose; give up after repeated misses."""
+        for start, count in OPTIONAL_PARAM_BLOCKS:
+            if start in self._optional_unsupported:
+                continue
+            try:
+                new.update(await self._read_block(start, count))
+                self._optional_failures[start] = 0
+            except ModbusError as err:
+                failures = self._optional_failures.get(start, 0) + 1
+                self._optional_failures[start] = failures
+                if failures >= OPTIONAL_BLOCK_MAX_FAILURES:
+                    self._optional_unsupported.add(start)
+                    _LOGGER.info("Register block %s is not supported by this controller "
+                                 "(%s); it will no longer be polled", start, err)
+                else:
+                    _LOGGER.debug("Optional block %s read failed (%s/%s): %s",
+                                  start, failures, OPTIONAL_BLOCK_MAX_FAILURES, err)
+
+    async def _maybe_sync_clock(self, new: dict[int, int]) -> None:
+        """Keep the controller RTC in sync with HA local time.
+
+        The controller runs scheduled disinfection itself (start hour + interval
+        days) and silently skips it forever when its clock is unset — e.g. after
+        every power loss when no cloud/WiFi module sets the time.
+        """
+        if REG_TIME_YEAR not in new:
+            return
+        now = dt_util.now()
+        current = controller_time(new, now.tzinfo)
+        if current is not None and abs(now - current) <= CLOCK_DRIFT_TOLERANCE:
+            return
+        _LOGGER.info("Controller clock is %s; syncing to %s (scheduled disinfection relies on it)",
+                     current.strftime("%Y-%m-%d %H:%M") if current else "not set",
+                     now.strftime("%Y-%m-%d %H:%M"))
+        values = {
+            REG_TIME_MINUTE: now.minute,
+            REG_TIME_HOUR: now.hour,
+            REG_TIME_DAY: now.day,
+            REG_TIME_MONTH: now.month,
+            REG_TIME_YEAR: now.year % 100,
+            REG_TIME_ENABLE: 1,
+        }
+        try:
+            for address, value in values.items():
+                await self.client.write_register(self.slave, address, value)
+        except ModbusError as err:
+            _LOGGER.warning("Failed to sync the controller clock: %s", err)
+            return
+        new.update(values)
 
     async def async_write(self, address: int, value: int) -> None:
         """Write one holding register and refresh local state."""
