@@ -22,6 +22,7 @@ class FakeSlave:
         self.registers = dict(registers)
         self.slave = slave
         self.writes: list[tuple[int, int]] = []
+        self.unanswered: list[tuple[int, int]] = []
         self.noise = True
         self.server: asyncio.base_events.Server | None = None
         self.port = 0
@@ -67,6 +68,7 @@ class FakeSlave:
         if fc == 3:
             addr, count = struct.unpack(">HH", pdu[1:5])
             if any(a not in self.registers for a in range(addr, addr + count)):
+                self.unanswered.append((addr, count))
                 return None  # like the real controller: no answer
             data = b"".join(struct.pack(">H", self.registers[a]) for a in range(addr, addr + count))
             return bytes([3, len(data)]) + data

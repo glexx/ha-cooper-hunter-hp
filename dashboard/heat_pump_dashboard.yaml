@@ -466,8 +466,6 @@ views:
         name: Година початку дезінфекції
       - entity: number.hp_disinfection_interval
         name: Період дезінфекції
-      - entity: switch.hp_disinfection_in_standby
-        name: Дезінфекція в режимі очікування/вимкнено
       state_color: true
   - type: grid
     cards:

@@ -31,12 +31,9 @@ MAX_STALE_POLLS = 3
 PAGE_HEADER_LEN = 10
 FIRMWARE_REGS = (0, 6)
 
-# (start, count) blocks read from the controller.
+# (start, count) blocks read from the controller. These are the only pages the
+# controller answers; requests to any other address (e.g. 1271+, 2181+) get no reply.
 PARAM_BLOCKS: tuple[tuple[int, int], ...] = ((1001, 90), (1091, 90), (1181, 90))
 STATUS_BLOCKS: tuple[tuple[int, int], ...] = ((2001, 90), (2091, 55))
-# Optional registers that newer firmware may expose.
-# Read best-effort: skipped permanently after OPTIONAL_BLOCK_MAX_FAILURES misses.
-OPTIONAL_PARAM_BLOCKS: tuple[tuple[int, int], ...] = ((1429, 1),)
-OPTIONAL_BLOCK_MAX_FAILURES = 3
 
 SENSOR_FAULT_VALUE = 32767

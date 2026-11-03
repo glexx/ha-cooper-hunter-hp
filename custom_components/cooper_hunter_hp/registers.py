@@ -149,7 +149,6 @@ REG_TIME_HOUR = 1252
 REG_TIME_DAY = 1253
 REG_TIME_MONTH = 1254
 REG_TIME_YEAR = 1255  # two digits, 2000 + N
-REG_DISINFECTION_STANDBY = 1429  # on an optional page, absent on older firmware
 REG_MODE_STATE = 2012
 REG_COMP_FREQ = 2072
 REG_INLET = 2045
@@ -475,9 +474,6 @@ SWITCHES: tuple[SwitchDef, ...] = (
               en="Weather compensation", uk="Погодозалежне регулювання"),
     SwitchDef(key="disinfection", address=1156, icon="mdi:bacteria-outline", category=CONFIG,
               en="Legionella disinfection", uk="Дезінфекція (легіонела)"),
-    SwitchDef(key="disinfection_in_standby", address=REG_DISINFECTION_STANDBY,
-              icon="mdi:bacteria-outline", category=CONFIG,
-              en="Disinfection in standby & off mode", uk="Дезінфекція в режимі очікування/вимкнено"),
     SwitchDef(key="manual_water_pump", address=1202, icon="mdi:pump", category=CONFIG,
               en="Main pump manual control", uk="Ручне керування насосом"),
     SwitchDef(key="cooling_enabled", address=1021, icon="mdi:snowflake", category=CONFIG, enabled=False,

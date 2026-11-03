@@ -192,33 +192,16 @@ async def test_clock_resync_on_drift(hass: HomeAssistant, fake_slave) -> None:
     assert (1250, 1) in fake_slave.writes
 
 
-async def test_disinfection_standby_switch(hass: HomeAssistant, fake_slave) -> None:
-    await _setup(hass, fake_slave)
-    assert hass.states.get("switch.hp_disinfection_in_standby").state == "off"
-    with patch("custom_components.cooper_hunter_hp.coordinator.WRITE_SETTLE_DELAY", 0):
-        await hass.services.async_call("switch", "turn_on",
-                                       {"entity_id": "switch.hp_disinfection_in_standby"},
-                                       blocking=True)
-    assert (1429, 1) in fake_slave.writes
-
-
-async def test_optional_page_unsupported(hass: HomeAssistant, fake_slave) -> None:
-    del fake_slave.registers[1429]
-
-    def fast_client(data):  # missing pages time out; keep that cheap
-        client = ModbusClient("tcp", host=data[CONF_HOST], port=data[CONF_PORT],
-                              timeout=0.2, retries=0)
-        return client
-
-    with patch("custom_components.cooper_hunter_hp.create_client", side_effect=fast_client):
-        entry = await _setup(hass, fake_slave)  # setup succeeds without the optional page
-    assert hass.states.get("switch.hp_disinfection_in_standby").state == "unknown"
+async def test_polls_only_answered_pages(hass: HomeAssistant, fake_slave) -> None:
+    # The controller silently ignores reads outside its pages (e.g. 1271+), which costs
+    # a full timeout + retries on a shared gateway; the integration must never issue them.
+    entry = await _setup(hass, fake_slave)
     coordinator = entry.runtime_data
-    for _ in range(2):
-        coordinator._params_dirty = True
-        await coordinator.async_refresh()
-        assert coordinator.last_update_success
-    assert 1429 in coordinator._optional_unsupported
+    coordinator._params_dirty = True
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success
+    assert fake_slave.unanswered == []
+    assert hass.states.get("switch.hp_disinfection_in_standby") is None
 
 
 async def test_fault_bits(hass: HomeAssistant, fake_slave) -> None:

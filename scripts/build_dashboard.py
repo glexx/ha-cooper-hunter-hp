@@ -294,7 +294,6 @@ def build(p: str, power: str | None, energy: str | None, heat: str | None,
             entities_section("Дезінфекція", "mdi:bacteria-outline", [
                 e("switch", "disinfection"), n("disinfection_temperature"), n("disinfection_duration"),
                 n("disinfection_start_hour"), n("disinfection_interval"),
-                e("switch", "disinfection_in_standby"),
             ]),
             {"type": "grid", "cards": [
                 heading("Сервіс", "mdi:wrench"),

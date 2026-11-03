@@ -755,9 +755,6 @@
       "disinfection": {
         "name": "Дезінфекція (легіонела)"
       },
-      "disinfection_in_standby": {
-        "name": "Дезінфекція в режимі очікування/вимкнено"
-      },
       "manual_water_pump": {
         "name": "Ручне керування насосом"
       },

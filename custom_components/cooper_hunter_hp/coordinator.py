@@ -17,8 +17,6 @@ from .const import (
     DOMAIN,
     FIRMWARE_REGS,
     MAX_STALE_POLLS,
-    OPTIONAL_BLOCK_MAX_FAILURES,
-    OPTIONAL_PARAM_BLOCKS,
     PAGE_HEADER_LEN,
     PARAM_BLOCKS,
     SENSOR_FAULT_VALUE,
@@ -118,8 +116,6 @@ class HeatPumpCoordinator(DataUpdateCoordinator[dict[int, int]]):
         self._poll_count = 0
         self._params_dirty = True
         self._failures = 0
-        self._optional_failures: dict[int, int] = {}
-        self._optional_unsupported: set[int] = set()
         self._registers: dict[int, int] = {}
         self.firmware: str | None = None
 
@@ -153,30 +149,10 @@ class HeatPumpCoordinator(DataUpdateCoordinator[dict[int, int]]):
             raise UpdateFailed(f"Error communicating with heat pump: {err}") from err
         self._failures = 0
         if read_params:
-            await self._read_optional_blocks(new)
             await self._maybe_sync_clock(new)
             self._params_dirty = False
         self._registers.update(new)
         return dict(self._registers)
-
-    async def _read_optional_blocks(self, new: dict[int, int]) -> None:
-        """Read pages that older firmware does not expose; give up after repeated misses."""
-        for start, count in OPTIONAL_PARAM_BLOCKS:
-            if start in self._optional_unsupported:
-                continue
-            try:
-                new.update(await self._read_block(start, count))
-                self._optional_failures[start] = 0
-            except ModbusError as err:
-                failures = self._optional_failures.get(start, 0) + 1
-                self._optional_failures[start] = failures
-                if failures >= OPTIONAL_BLOCK_MAX_FAILURES:
-                    self._optional_unsupported.add(start)
-                    _LOGGER.info("Register block %s is not supported by this controller "
-                                 "(%s); it will no longer be polled", start, err)
-                else:
-                    _LOGGER.debug("Optional block %s read failed (%s/%s): %s",
-                                  start, failures, OPTIONAL_BLOCK_MAX_FAILURES, err)
 
     async def _maybe_sync_clock(self, new: dict[int, int]) -> None:
         """Keep the controller RTC in sync with HA local time.

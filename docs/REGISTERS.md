@@ -60,7 +60,6 @@ System clock: 1250 enable, 1251 minute, 1252 hour, 1253 day, 1254 month, 1255 ye
 | 1236 | `switch.weather_compensation` | u16 | 0/1 | Weather compensation |
 | 1238 | `number.maximum_outlet_temperature` | ×0.1 (signed) | 40…95 °C | Max heat pump outlet temperature |
 | 1239 | `number.room_setpoint` | ×0.1 (signed) | 5…27 °C | Room setpoint |
-| 1429 | `switch.disinfection_in_standby` | u16 | 0/1 | Disinfection in standby & off mode |
 
 ## Read-only
 
