@@ -132,11 +132,13 @@ class ModbusClient:
             except (OSError, TimeoutError):
                 pass
 
-    async def read_holding_registers(self, slave: int, address: int, count: int) -> list[int]:
+    async def read_holding_registers(
+        self, slave: int, address: int, count: int, *, retries: int | None = None
+    ) -> list[int]:
         if not 1 <= count <= MAX_REGS_PER_READ:
             raise ValueError("count out of range")
         pdu = struct.pack(">BHH", 3, address, count)
-        resp = await self._execute(slave, pdu, expected_data_len=2 * count)
+        resp = await self._execute(slave, pdu, expected_data_len=2 * count, retries=retries)
         return [struct.unpack_from(">H", resp, 2 + 2 * i)[0] for i in range(count)]
 
     async def write_register(
@@ -145,14 +147,14 @@ class ModbusClient:
         value &= 0xFFFF
         pdu = struct.pack(">BHH", 6, address, value)
         if not verify:
-            await self._execute(slave, pdu)
+            self._check_echo(address, value, await self._execute(slave, pdu))
             return
         # Some controllers (slow 9600 buses, or units that only answer on the
         # broadcast address 0) apply the write but drop or garble the echo.
-        # Try once, and on failure confirm the write by reading the register
-        # back before escalating to the full retry loop.
+        # Try once; on failure confirm the write with a single read-back before
+        # escalating to the full retry loop, so a dead gateway still fails fast.
         try:
-            await self._execute(slave, pdu, retries=0)
+            self._check_echo(address, value, await self._execute(slave, pdu, retries=0))
             return
         except ModbusError as first_err:
             if await self._readback_equals(slave, address, value):
@@ -162,7 +164,7 @@ class ModbusClient:
                 )
                 return
         try:
-            await self._execute(slave, pdu)
+            self._check_echo(address, value, await self._execute(slave, pdu))
         except ModbusError:
             if await self._readback_equals(slave, address, value):
                 return
@@ -171,10 +173,20 @@ class ModbusClient:
     async def _readback_equals(self, slave: int, address: int, value: int) -> bool:
         await asyncio.sleep(READBACK_DELAY)
         try:
-            current = await self.read_holding_registers(slave, address, 1)
+            current = await self.read_holding_registers(slave, address, 1, retries=0)
         except ModbusError:
             return False
         return current[0] == value
+
+    @staticmethod
+    def _check_echo(address: int, value: int, body: bytes) -> None:
+        """Warn when the FC06 echo carries a different value than requested."""
+        if len(body) >= 5:
+            echoed = struct.unpack_from(">H", body, 3)[0]
+            if echoed != value:
+                _LOGGER.warning(
+                    "Register %s: requested %s but controller stored %s", address, value, echoed
+                )
 
     async def write_registers(self, slave: int, address: int, values: list[int]) -> None:
         pdu = struct.pack(">BHHB", 16, address, len(values), 2 * len(values)) + b"".join(

@@ -24,6 +24,10 @@ class FakeSlave:
         self.writes: list[tuple[int, int]] = []
         self.unanswered: list[tuple[int, int]] = []
         self.noise = True
+        # "drop_echo": FC06 applies the write but no echo is sent (seen on some
+        # LinkedGo firmwares). "ignore_write": FC06 is neither applied nor echoed.
+        # "clamp": the value is clamped to 600 and the clamped value is echoed.
+        self.write_mode = "normal"
         self.server: asyncio.base_events.Server | None = None
         self.port = 0
         self._writers: set[asyncio.StreamWriter] = set()
@@ -74,9 +78,16 @@ class FakeSlave:
             return bytes([3, len(data)]) + data
         if fc == 6:
             addr, value = struct.unpack(">HH", pdu[1:5])
+            if self.write_mode == "ignore_write":
+                self.unanswered.append((addr, 1))
+                return None
+            if self.write_mode == "clamp":
+                value = min(value, 600)
             self.registers[addr] = value
             self.writes.append((addr, value))
-            return pdu
+            if self.write_mode == "drop_echo":
+                return None
+            return struct.pack(">BHH", 6, addr, value)
         if fc == 16:
             addr, count = struct.unpack(">HH", pdu[1:5])
             for i in range(count):

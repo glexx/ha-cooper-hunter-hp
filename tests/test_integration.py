@@ -249,3 +249,34 @@ def test_codec() -> None:
 def test_active_faults_known_and_unknown() -> None:
     assert active_faults({2081: 1}) [0][0] == "ipm_overcurrent_fault"
     assert active_faults({}) == []
+
+
+async def test_write_dropped_echo_applied(fake_slave) -> None:
+    """Controller applies the write but never echoes: read-back confirms, sent once."""
+    fake_slave.write_mode = "drop_echo"
+    client = ModbusClient("tcp", host="127.0.0.1", port=fake_slave.port, timeout=0.5, retries=3)
+    await client.write_register(1, 1157, 500)
+    assert fake_slave.writes == [(1157, 500)]
+    assert fake_slave.registers[1157] == 500
+    await client.close()
+
+
+async def test_write_dropped_echo_not_applied(fake_slave) -> None:
+    """No echo and the register did not change: the write must fail."""
+    fake_slave.write_mode = "ignore_write"
+    before = fake_slave.registers[1157]
+    client = ModbusClient("tcp", host="127.0.0.1", port=fake_slave.port, timeout=0.5, retries=3)
+    with pytest.raises(ModbusError):
+        await client.write_register(1, 1157, 500)
+    assert fake_slave.writes == []
+    assert fake_slave.registers[1157] == before
+    await client.close()
+
+
+async def test_write_clamped_echo_warns(fake_slave, caplog) -> None:
+    """An echo with a different value is accepted but logged as a warning."""
+    fake_slave.write_mode = "clamp"
+    client = ModbusClient("tcp", host="127.0.0.1", port=fake_slave.port, timeout=0.5, retries=0)
+    await client.write_register(1, 1157, 999)
+    assert "requested 999 but controller stored 600" in caplog.text
+    await client.close()
